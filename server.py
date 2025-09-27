@@ -147,7 +147,49 @@ def run_nvidia_smi_via_ssh(host_alias: str, timeout: int = 15) -> Dict[str, Any]
         err = completed.stderr.strip()
         out = completed.stdout.strip()
 
-    return parse_nvidia_smi_output(out)
+    # Parse the nvidia-smi output first
+    result = parse_nvidia_smi_output(out)
+
+    # Get usernames for the PIDs we found
+    if result.get('users'):
+        pids = [str(user['pid']) for user in result['users']]
+        if pids:
+            # Get usernames for all PIDs in one command
+            ps_cmd = [
+                "ssh",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=5",
+                host_alias,
+                f"ps -o pid,user --no-headers -p {','.join(pids)} 2>/dev/null || true"
+            ]
+            try:
+                ps_completed = subprocess.run(
+                    ps_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=timeout,
+                    check=False,
+                    encoding="utf-8",
+                    errors="ignore",
+                )
+
+                # Parse ps output to create pid -> username mapping
+                pid_to_user = {}
+                if ps_completed.returncode == 0 and ps_completed.stdout.strip():
+                    for line in ps_completed.stdout.strip().split('\n'):
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            pid_to_user[int(parts[0])] = parts[1]
+
+                # Add usernames to the result
+                for user in result['users']:
+                    user['user'] = pid_to_user.get(user['pid'], 'unknown')
+
+            except Exception:
+                # If ps command fails, keep 'process' as username
+                pass
+
+    return result
 
 
 async def poll_host_loop(host_alias: str):

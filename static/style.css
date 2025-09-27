@@ -99,3 +99,9 @@ h3 {
     color: #888;
     font-size: 0.9em;
 }
+
+.username {
+    font-weight: 600;
+    color: #2563eb;
+    font-size: 0.9em;
+}

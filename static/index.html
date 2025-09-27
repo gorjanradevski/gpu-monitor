@@ -45,11 +45,33 @@
 
                             Object.keys(usersByGpu).sort((a,b) => parseInt(a) - parseInt(b)).forEach(gpuId => {
                                 const users = usersByGpu[gpuId];
-                                const userItem = document.createElement('div');
-                                userItem.className = 'user-item';
-                                const userList = users.map(u => `${u.command} (PID: ${u.pid})`).join(', ');
-                                userItem.textContent = `GPU ${gpuId}: ${userList}`;
-                                usersDiv.appendChild(userItem);
+                                const gpuSection = document.createElement('div');
+                                gpuSection.className = 'gpu-section';
+
+                                const gpuLabel = document.createElement('div');
+                                gpuLabel.className = 'gpu-label';
+                                gpuLabel.textContent = `GPU ${gpuId}:`;
+                                gpuSection.appendChild(gpuLabel);
+
+                                const usersList = document.createElement('div');
+                                usersList.className = 'users-list';
+
+                                users.forEach(u => {
+                                    const userProcess = document.createElement('div');
+                                    userProcess.className = 'user-process';
+                                    let memoryText = '';
+                                    if (u.memory_used_mib && u.gpu_memory_total_mib) {
+                                        const percentage = Math.round((u.memory_used_mib / u.gpu_memory_total_mib) * 100);
+                                        memoryText = ` - ${u.memory_used_mib}/${u.gpu_memory_total_mib} MiB (${percentage}%)`;
+                                    } else if (u.memory_used_mib) {
+                                        memoryText = ` - ${u.memory_used_mib} MiB`;
+                                    }
+                                    userProcess.innerHTML = `<span class="process-name">${u.command}</span><span class="memory-usage">${memoryText}</span>`;
+                                    usersList.appendChild(userProcess);
+                                });
+
+                                gpuSection.appendChild(usersList);
+                                usersDiv.appendChild(gpuSection);
                             });
 
                             hostDiv.appendChild(usersDiv);

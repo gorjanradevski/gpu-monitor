@@ -63,3 +63,39 @@ h3 {
     font-size: 0.85em;
     color: #666;
 }
+
+.gpu-section {
+    margin: 8px 0;
+    padding: 6px;
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+}
+
+.gpu-label {
+    font-weight: bold;
+    color: #444;
+    margin-bottom: 4px;
+    font-size: 0.9em;
+}
+
+.users-list {
+    margin-left: 12px;
+}
+
+.user-process {
+    margin: 2px 0;
+    font-size: 0.85em;
+    color: #666;
+    padding: 2px 0;
+}
+
+.process-name {
+    font-weight: 500;
+    color: #333;
+}
+
+.memory-usage {
+    color: #888;
+    font-size: 0.9em;
+}

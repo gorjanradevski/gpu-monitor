@@ -50,71 +50,57 @@ def parse_nvidia_smi_output(output: str) -> Dict[str, Any]:
     gpus = []
     for ln in gpu_lines:
         parts = [p.strip() for p in ln.split(",")]
-        if len(parts) < 5:
-            if len(parts) >= 4:
-                try:
-                    index = int(parts[0])
-                    continue
-                except Exception:
-                    continue
+        if len(parts) < 6:
             continue
-        if len(parts) > 5:
-            try:
-                index = int(parts[0])
-                util = int(parts[-3])
-                mem_total = int(parts[-2])
-                mem_used = int(parts[-1])
-                name = ", ".join(parts[1:-3])
-            except Exception:
-                continue
-        else:
-            try:
-                index = int(parts[0])
-                name = parts[1]
-                util = int(parts[2])
-                mem_total = int(parts[3])
-                mem_used = int(parts[4])
-            except Exception:
-                continue
+        try:
+            index = int(parts[0])
+            name = parts[1]
+            bus_id = parts[2]
+            util = int(parts[3])
+            mem_total = int(parts[4])
+            mem_used = int(parts[5])
+        except Exception:
+            continue
         gpus.append({
             "index": index,
             "name": name,
+            "bus_id": bus_id,
             "utilization_gpu": util,
             "memory_total_mib": mem_total,
             "memory_used_mib": mem_used,
         })
 
     # Parse process data from query-compute-apps output
-    # Format: gpu_uuid, pid, process_name, used_memory
+    # Format: gpu_bus_id, pid, process_name, used_memory
     users = []
+
+    # Create a mapping from GPU bus_id to GPU data
+    gpu_bus_id_to_gpu = {}
+    for gpu in gpus:
+        gpu_bus_id_to_gpu[gpu['bus_id']] = gpu
 
     for line in process_lines:
         if not line.strip():
             continue
         parts = [p.strip() for p in line.split(",")]
-        if len(parts) >= 3:
+        if len(parts) >= 4:
             try:
-                gpu_uuid = parts[0]
+                gpu_bus_id = parts[0]
                 pid = int(parts[1])
                 process_name = parts[2]
+                used_memory = int(parts[3]) if parts[3] and parts[3] != "[Not Supported]" else 0
 
-                # Map GPU UUID to index - extract from UUID like "GPU-12345678-abcd-..."
-                gpu_id = None
-                if "GPU-" in gpu_uuid:
-                    # Try to find matching GPU by checking if UUID corresponds to any GPU index
-                    # This is a simplified approach - in practice UUIDs are unique per GPU
-                    for gpu in gpus:
-                        # For now, we'll map based on order or try to extract index from UUID
-                        if gpu_id is None:
-                            gpu_id = gpu['index']
-                            break
+                # Map GPU bus_id to GPU data
+                gpu = gpu_bus_id_to_gpu.get(gpu_bus_id)
 
-                if gpu_id is not None:
+                if gpu is not None:
                     users.append({
-                        "gpu_id": gpu_id,
+                        "gpu_id": gpu['index'],
                         "pid": pid,
                         "user": "process",  # nvidia-smi doesn't provide usernames directly
-                        "command": process_name
+                        "command": process_name,
+                        "memory_used_mib": used_memory,
+                        "gpu_memory_total_mib": gpu['memory_total_mib']
                     })
             except (ValueError, IndexError):
                 continue
@@ -128,7 +114,7 @@ def run_nvidia_smi_via_ssh(host_alias: str, timeout: int = 15) -> Dict[str, Any]
     Returns a list of GPU dicts or raises RuntimeError on failure.
     """
     # The remote command - get GPU info and running processes
-    remote_cmd = "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.total,memory.used --format=csv,noheader,nounits && echo '---' && nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader,nounits"
+    remote_cmd = "nvidia-smi --query-gpu=index,name,pci.bus_id,utilization.gpu,memory.total,memory.used --format=csv,noheader,nounits && echo '---' && nvidia-smi --query-compute-apps=gpu_bus_id,pid,process_name,used_memory --format=csv,noheader,nounits"
     # ssh options:
     ssh_cmd = [
         "ssh",

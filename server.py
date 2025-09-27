@@ -132,36 +132,50 @@ async def get_metrics():
 
 INDEX_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Minimal GPU Monitor</title>
-<style>body{font-family:system-ui,Segoe UI,Roboto,Arial;padding:16px}table{border-collapse:collapse;width:100%;max-width:1200px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f4f4f4}.high{background:#ffdddd}.med{background:#fff3cd}.small{font-size:0.9em;color:#666}</style>
+<style>body{font-family:system-ui,Segoe UI,Roboto,Arial;padding:16px}table{border-collapse:collapse;width:100%;max-width:1200px;margin-bottom:24px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f4f4f4}.high{background:#ffdddd}.med{background:#fff3cd}.small{font-size:0.9em;color:#666}h3{margin-top:24px;margin-bottom:8px;color:#333}.error{color:#cc0000;font-weight:bold}</style>
 </head><body>
 <h2>Minimal GPU Monitor</h2>
-<table id="tbl"><thead><tr><th>Host</th><th>GPU</th><th>Name</th><th>GPU %</th><th>Mem used / total (MiB)</th></tr></thead><tbody id="body"></tbody></table>
+<div id="content"></div>
 <script>
 async function fetchAndRender(){
   try{
     const r = await fetch('/metrics');
     const data = await r.json();
-    const tbody = document.getElementById('body');
-    tbody.innerHTML = '';
+    const content = document.getElementById('content');
+    content.innerHTML = '';
     data.forEach(h=>{
+      const hostDiv = document.createElement('div');
+      const hostHeader = document.createElement('h3');
+      hostHeader.textContent = h.host_alias;
+      hostDiv.appendChild(hostHeader);
+
       if(h.error){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td colspan="5"><strong>${h.host_alias}</strong> — error: ${h.error}</td>`;
-        tbody.appendChild(tr);
-        return;
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error';
+        errorDiv.textContent = `Error: ${h.error}`;
+        hostDiv.appendChild(errorDiv);
+      } else {
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        thead.innerHTML = '<tr><th>GPU</th><th>Name</th><th>GPU %</th><th>Mem used / total (MiB)</th></tr>';
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        (h.gpus||[]).forEach(g=>{
+          const tr = document.createElement('tr');
+          const util = g.utilization_gpu||0;
+          if(util>=90) tr.className='high';
+          else if(util>=60) tr.className='med';
+          tr.innerHTML = `<td>${g.index}</td>
+                          <td>${g.name}</td>
+                          <td>${util}%</td>
+                          <td>${g.memory_used_mib} / ${g.memory_total_mib}</td>`;
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        hostDiv.appendChild(table);
       }
-      (h.gpus||[]).forEach(g=>{
-        const tr = document.createElement('tr');
-        const util = g.utilization_gpu||0;
-        if(util>=90) tr.className='high';
-        else if(util>=60) tr.className='med';
-        tr.innerHTML = `<td>${h.host_alias}</td>
-                        <td>${g.index}</td>
-                        <td>${g.name}</td>
-                        <td>${util}%</td>
-                        <td>${g.memory_used_mib} / ${g.memory_total_mib}</td>`;
-        tbody.appendChild(tr);
-      });
+      content.appendChild(hostDiv);
     });
   }catch(e){
     console.error(e);

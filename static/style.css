@@ -1,0 +1,65 @@
+body {
+    font-family: system-ui, Segoe UI, Roboto, Arial;
+    padding: 16px;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    max-width: 1200px;
+    margin-bottom: 16px;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+th {
+    background: #f4f4f4;
+}
+
+.high {
+    background: #ffdddd;
+}
+
+.med {
+    background: #fff3cd;
+}
+
+.small {
+    font-size: 0.9em;
+    color: #666;
+}
+
+h3 {
+    margin-top: 24px;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.error {
+    color: #cc0000;
+    font-weight: bold;
+}
+
+.users {
+    margin-top: 8px;
+    margin-bottom: 16px;
+    padding: 8px;
+    background: #f9f9f9;
+    border-radius: 4px;
+}
+
+.users h4 {
+    margin: 0 0 8px 0;
+    font-size: 0.9em;
+    color: #555;
+}
+
+.user-item {
+    margin: 4px 0;
+    font-size: 0.85em;
+    color: #666;
+}

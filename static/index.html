@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Minimal GPU Monitor</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h2>Minimal GPU Monitor</h2>
+    <div id="content"></div>
+
+    <script>
+        async function fetchAndRender(){
+            try{
+                const r = await fetch('/metrics');
+                const data = await r.json();
+                const content = document.getElementById('content');
+                content.innerHTML = '';
+                data.forEach(h=>{
+                    const hostDiv = document.createElement('div');
+                    const hostHeader = document.createElement('h3');
+                    hostHeader.textContent = h.host_alias;
+                    hostDiv.appendChild(hostHeader);
+
+                    if(h.error){
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'error';
+                        errorDiv.textContent = `Error: ${h.error}`;
+                        hostDiv.appendChild(errorDiv);
+                    } else {
+                        // Show user info first if available
+                        if(h.users && h.users.length > 0){
+                            const usersDiv = document.createElement('div');
+                            usersDiv.className = 'users';
+                            const usersHeader = document.createElement('h4');
+                            usersHeader.textContent = 'Active Users:';
+                            usersDiv.appendChild(usersHeader);
+
+                            // Group users by GPU
+                            const usersByGpu = {};
+                            h.users.forEach(u => {
+                                if(!usersByGpu[u.gpu_id]) usersByGpu[u.gpu_id] = [];
+                                usersByGpu[u.gpu_id].push(u);
+                            });
+
+                            Object.keys(usersByGpu).sort((a,b) => parseInt(a) - parseInt(b)).forEach(gpuId => {
+                                const users = usersByGpu[gpuId];
+                                const userItem = document.createElement('div');
+                                userItem.className = 'user-item';
+                                const userList = users.map(u => `${u.command} (PID: ${u.pid})`).join(', ');
+                                userItem.textContent = `GPU ${gpuId}: ${userList}`;
+                                usersDiv.appendChild(userItem);
+                            });
+
+                            hostDiv.appendChild(usersDiv);
+                        }
+
+                        const table = document.createElement('table');
+                        const thead = document.createElement('thead');
+                        thead.innerHTML = '<tr><th>GPU</th><th>Name</th><th>GPU %</th><th>Mem used / total (MiB)</th></tr>';
+                        table.appendChild(thead);
+
+                        const tbody = document.createElement('tbody');
+                        (h.gpus||[]).forEach(g=>{
+                            const tr = document.createElement('tr');
+                            const util = g.utilization_gpu||0;
+                            if(util>=90) tr.className='high';
+                            else if(util>=60) tr.className='med';
+                            tr.innerHTML = `<td>${g.index}</td>
+                                            <td>${g.name}</td>
+                                            <td>${util}%</td>
+                                            <td>${g.memory_used_mib} / ${g.memory_total_mib}</td>`;
+                            tbody.appendChild(tr);
+                        });
+                        table.appendChild(tbody);
+                        hostDiv.appendChild(table);
+                    }
+                    content.appendChild(hostDiv);
+                });
+            }catch(e){
+                console.error(e);
+            }
+        }
+
+        fetchAndRender();
+        setInterval(fetchAndRender, 2000);
+    </script>
+</body>
+</html>

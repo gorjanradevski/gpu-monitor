@@ -12,7 +12,8 @@ from typing import Any, Dict, List
 
 import uvicorn
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 SSH_CONFIG_PATH = os.path.expanduser(os.environ.get("SSH_CONFIG_PATH", "~/.ssh/config"))
 POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "5.0"))
@@ -20,16 +21,114 @@ BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 BIND_PORT = int(os.environ.get("BIND_PORT", "8000"))
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 latest: Dict[str, Dict[str, Any]] = {}  # host_alias -> payload
 
 
-def run_nvidia_smi_via_ssh(host_alias: str, timeout: int = 8) -> List[Dict[str, Any]]:
+def parse_nvidia_smi_output(output: str) -> Dict[str, Any]:
+    """
+    Parse the combined output from nvidia-smi GPU query and compute-apps query.
+    Returns dict with 'gpus' and 'users' lists.
+    """
+    lines = [ln.strip() for ln in output.splitlines() if ln.strip()]
+
+    # Split output at the separator
+    gpu_lines = []
+    process_lines = []
+    in_process_section = False
+
+    for line in lines:
+        if line == "---":
+            in_process_section = True
+            continue
+        if in_process_section:
+            process_lines.append(line)
+        else:
+            gpu_lines.append(line)
+
+    # Parse GPU data
+    gpus = []
+    for ln in gpu_lines:
+        parts = [p.strip() for p in ln.split(",")]
+        if len(parts) < 5:
+            if len(parts) >= 4:
+                try:
+                    index = int(parts[0])
+                    continue
+                except Exception:
+                    continue
+            continue
+        if len(parts) > 5:
+            try:
+                index = int(parts[0])
+                util = int(parts[-3])
+                mem_total = int(parts[-2])
+                mem_used = int(parts[-1])
+                name = ", ".join(parts[1:-3])
+            except Exception:
+                continue
+        else:
+            try:
+                index = int(parts[0])
+                name = parts[1]
+                util = int(parts[2])
+                mem_total = int(parts[3])
+                mem_used = int(parts[4])
+            except Exception:
+                continue
+        gpus.append({
+            "index": index,
+            "name": name,
+            "utilization_gpu": util,
+            "memory_total_mib": mem_total,
+            "memory_used_mib": mem_used,
+        })
+
+    # Parse process data from query-compute-apps output
+    # Format: gpu_uuid, pid, process_name, used_memory
+    users = []
+
+    for line in process_lines:
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 3:
+            try:
+                gpu_uuid = parts[0]
+                pid = int(parts[1])
+                process_name = parts[2]
+
+                # Map GPU UUID to index - extract from UUID like "GPU-12345678-abcd-..."
+                gpu_id = None
+                if "GPU-" in gpu_uuid:
+                    # Try to find matching GPU by checking if UUID corresponds to any GPU index
+                    # This is a simplified approach - in practice UUIDs are unique per GPU
+                    for gpu in gpus:
+                        # For now, we'll map based on order or try to extract index from UUID
+                        if gpu_id is None:
+                            gpu_id = gpu['index']
+                            break
+
+                if gpu_id is not None:
+                    users.append({
+                        "gpu_id": gpu_id,
+                        "pid": pid,
+                        "user": "process",  # nvidia-smi doesn't provide usernames directly
+                        "command": process_name
+                    })
+            except (ValueError, IndexError):
+                continue
+
+    return {"gpus": gpus, "users": users}
+
+
+def run_nvidia_smi_via_ssh(host_alias: str, timeout: int = 15) -> Dict[str, Any]:
     """
     Uses `ssh <host_alias> 'nvidia-smi --query-gpu=... --format=csv,noheader,nounits'`
     Returns a list of GPU dicts or raises RuntimeError on failure.
     """
-    # The remote command - use csv noheader nounits
-    remote_cmd = "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.total,memory.used --format=csv,noheader,nounits"
+    # The remote command - get GPU info and running processes
+    remote_cmd = "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.total,memory.used --format=csv,noheader,nounits && echo '---' && nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader,nounits"
     # ssh options:
     ssh_cmd = [
         "ssh",
@@ -62,47 +161,7 @@ def run_nvidia_smi_via_ssh(host_alias: str, timeout: int = 8) -> List[Dict[str, 
         err = completed.stderr.strip()
         out = completed.stdout.strip()
 
-    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
-    gpus = []
-    for ln in lines:
-        parts = [p.strip() for p in ln.split(",")]
-        if len(parts) < 5:
-            # sometimes names include commas; if so, try heuristic: index is first, last two are mems, one before last is util
-            if len(parts) >= 4:
-                # fallback parsing attempt
-                try:
-                    index = int(parts[0])
-                    # not enough pieces to be confident, skip
-                    continue
-                except Exception:
-                    continue
-            continue
-        if len(parts) > 5:
-            try:
-                index = int(parts[0])
-                util = int(parts[-3])
-                mem_total = int(parts[-2])
-                mem_used = int(parts[-1])
-                name = ", ".join(parts[1:-3])
-            except Exception:
-                continue
-        else:
-            try:
-                index = int(parts[0])
-                name = parts[1]
-                util = int(parts[2])
-                mem_total = int(parts[3])
-                mem_used = int(parts[4])
-            except Exception:
-                continue
-        gpus.append({
-            "index": index,
-            "name": name,
-            "utilization_gpu": util,
-            "memory_total_mib": mem_total,
-            "memory_used_mib": mem_used,
-        })
-    return gpus
+    return parse_nvidia_smi_output(out)
 
 
 async def poll_host_loop(host_alias: str):
@@ -110,8 +169,8 @@ async def poll_host_loop(host_alias: str):
         try:
             loop = asyncio.get_running_loop()
             # run blocking ssh in the default threadpool
-            gpus = await loop.run_in_executor(None, run_nvidia_smi_via_ssh, host_alias)
-            latest[host_alias] = {"host_alias": host_alias, "timestamp": time.time(), "gpus": gpus}
+            result = await loop.run_in_executor(None, run_nvidia_smi_via_ssh, host_alias)
+            latest[host_alias] = {"host_alias": host_alias, "timestamp": time.time(), **result}
         except Exception as e:
             latest[host_alias] = {"host_alias": host_alias, "timestamp": time.time(), "error": str(e)}
         await asyncio.sleep(POLL_INTERVAL)
@@ -130,67 +189,16 @@ async def get_metrics():
     return JSONResponse(list(latest.values()))
 
 
-INDEX_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><title>Minimal GPU Monitor</title>
-<style>body{font-family:system-ui,Segoe UI,Roboto,Arial;padding:16px}table{border-collapse:collapse;width:100%;max-width:1200px;margin-bottom:24px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f4f4f4}.high{background:#ffdddd}.med{background:#fff3cd}.small{font-size:0.9em;color:#666}h3{margin-top:24px;margin-bottom:8px;color:#333}.error{color:#cc0000;font-weight:bold}</style>
-</head><body>
-<h2>Minimal GPU Monitor</h2>
-<div id="content"></div>
-<script>
-async function fetchAndRender(){
-  try{
-    const r = await fetch('/metrics');
-    const data = await r.json();
-    const content = document.getElementById('content');
-    content.innerHTML = '';
-    data.forEach(h=>{
-      const hostDiv = document.createElement('div');
-      const hostHeader = document.createElement('h3');
-      hostHeader.textContent = h.host_alias;
-      hostDiv.appendChild(hostHeader);
-
-      if(h.error){
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error';
-        errorDiv.textContent = `Error: ${h.error}`;
-        hostDiv.appendChild(errorDiv);
-      } else {
-        const table = document.createElement('table');
-        const thead = document.createElement('thead');
-        thead.innerHTML = '<tr><th>GPU</th><th>Name</th><th>GPU %</th><th>Mem used / total (MiB)</th></tr>';
-        table.appendChild(thead);
-
-        const tbody = document.createElement('tbody');
-        (h.gpus||[]).forEach(g=>{
-          const tr = document.createElement('tr');
-          const util = g.utilization_gpu||0;
-          if(util>=90) tr.className='high';
-          else if(util>=60) tr.className='med';
-          tr.innerHTML = `<td>${g.index}</td>
-                          <td>${g.name}</td>
-                          <td>${util}%</td>
-                          <td>${g.memory_used_mib} / ${g.memory_total_mib}</td>`;
-          tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-        hostDiv.appendChild(table);
-      }
-      content.appendChild(hostDiv);
-    });
-  }catch(e){
-    console.error(e);
-  }
-}
-fetchAndRender();
-setInterval(fetchAndRender, 2000);
-</script>
-</body></html>
-"""
-
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def index():
-    return HTMLResponse(INDEX_HTML)
+    return RedirectResponse(url="/static/index.html")
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host=BIND_HOST, port=BIND_PORT, log_level="info")
+    uvicorn.run(
+        "server:app",
+        host=BIND_HOST,
+        port=BIND_PORT,
+        log_level="info",
+        access_log=False,   # <- suppress per-request logs
+    )

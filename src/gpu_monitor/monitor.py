@@ -5,17 +5,21 @@ runs nvidia-smi, and serves a tiny web UI and JSON /metrics endpoint.
 """
 
 import asyncio
-import os
 import subprocess
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from gpu_monitor.config import get_hosts, get_poll_interval, get_bind_host, get_bind_port, get_ssh_config_path
+from gpu_monitor.config import (
+    get_bind_host,
+    get_bind_port,
+    get_hosts,
+    get_poll_interval,
+)
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")

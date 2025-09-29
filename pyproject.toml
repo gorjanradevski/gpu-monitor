@@ -2,11 +2,10 @@
 name = "gpu-monitor"
 version = "1.0.0"
 description = "GPU monitoring tool for cluster hosts where you have SSH access."
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
-    "tomli>=1.2.0; python_version<'3.11'",
 ]
 
 [project.scripts]

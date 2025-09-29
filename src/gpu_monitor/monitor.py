@@ -15,10 +15,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-SSH_CONFIG_PATH = os.path.expanduser(os.environ.get("SSH_CONFIG_PATH", "~/.ssh/config"))
-POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "5.0"))
-BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
-BIND_PORT = int(os.environ.get("BIND_PORT", "8000"))
+from gpu_monitor.config import get_hosts, get_poll_interval, get_bind_host, get_bind_port, get_ssh_config_path
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -193,6 +190,7 @@ def run_nvidia_smi_via_ssh(host_alias: str, timeout: int = 15) -> Dict[str, Any]
 
 
 async def poll_host_loop(host_alias: str):
+    poll_interval = get_poll_interval()
     while True:
         try:
             loop = asyncio.get_running_loop()
@@ -201,12 +199,12 @@ async def poll_host_loop(host_alias: str):
             latest[host_alias] = {"host_alias": host_alias, "timestamp": time.time(), **result}
         except Exception as e:
             latest[host_alias] = {"host_alias": host_alias, "timestamp": time.time(), "error": str(e)}
-        await asyncio.sleep(POLL_INTERVAL)
+        await asyncio.sleep(poll_interval)
 
 
 @app.on_event("startup")
 async def startup_pollers():
-    hosts = ["c535", "c536", "c104", "c314", "c328", "c324", "c606", "c610", "c602"]
+    hosts = get_hosts()
     print("Polling SSH hosts:", hosts)
     for h in hosts:
         asyncio.create_task(poll_host_loop(h))
@@ -222,11 +220,18 @@ async def index():
     return RedirectResponse(url="/static/index.html")
 
 
-if __name__ == "__main__":
+def run_server():
+    """Run the GPU monitor server."""
+    host = get_bind_host()
+    port = get_bind_port()
     uvicorn.run(
-        "server:app",
-        host=BIND_HOST,
-        port=BIND_PORT,
+        "gpu_monitor.monitor:app",
+        host=host,
+        port=port,
         log_level="info",
         access_log=False,   # <- suppress per-request logs
     )
+
+
+if __name__ == "__main__":
+    run_server()

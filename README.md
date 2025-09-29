@@ -55,7 +55,7 @@ Configuration can also be overridden via environment variables:
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.11+
 - SSH access to the target hosts
 - nvidia-smi available on target hosts
 - FastAPI and uvicorn (automatically installed)

@@ -3,7 +3,7 @@
 import os
 import tomllib
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def find_pyproject_toml() -> Path:
@@ -65,8 +65,10 @@ def load_config() -> Dict[str, Any]:
         }
 
 
-def get_hosts() -> List[str]:
+def get_hosts(override_hosts: Optional[List[str]] = None) -> List[str]:
     """Get list of hosts to monitor."""
+    if override_hosts:
+        return override_hosts
     config = load_config()
     return config["hosts"]
 

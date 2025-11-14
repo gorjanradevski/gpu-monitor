@@ -206,9 +206,11 @@ async def poll_host_loop(host_alias: str):
         await asyncio.sleep(poll_interval)
 
 
+_override_hosts = None
+
 @app.on_event("startup")
 async def startup_pollers():
-    hosts = get_hosts()
+    hosts = get_hosts(_override_hosts)
     print("Polling SSH hosts:", hosts)
     for h in hosts:
         asyncio.create_task(poll_host_loop(h))
@@ -224,8 +226,10 @@ async def index():
     return RedirectResponse(url="/static/index.html")
 
 
-def run_server():
+def run_server(override_hosts=None):
     """Run the GPU monitor server."""
+    global _override_hosts
+    _override_hosts = override_hosts
     host = get_bind_host()
     port = get_bind_port()
     uvicorn.run(

@@ -21,29 +21,33 @@ def main():
     )
 
     parser.add_argument(
-        "--config",
-        help="Show current configuration and exit",
-        action="store_true"
+        "--servers",
+        nargs="+",
+        help="List of servers to monitor (overrides config file)",
+        metavar="HOST"
     )
 
     args = parser.parse_args()
 
-    if args.config:
-        show_config()
-        sys.exit(0)
-
+    show_config(args.servers)
     # Run the server
-    run_server()
+    run_server(args.servers)
 
 
-def show_config():
+def show_config(override_hosts=None):
     """Show current configuration."""
     from gpu_monitor.config import load_config
 
     config = load_config()
+
+    # Use override hosts if provided
+    hosts = override_hosts if override_hosts else config['hosts']
+
     print("GPU Monitor Configuration:")
     print("=" * 50)
-    print(f"Hosts: {', '.join(config['hosts'])}")
+    print(f"Hosts: {', '.join(hosts)}")
+    if override_hosts:
+        print("  (from command line)")
     print(f"Poll interval: {config['poll_interval']} seconds")
     print(f"Bind host: {config['bind_host']}")
     print(f"Bind port: {config['bind_port']}")
